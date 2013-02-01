@@ -1,0 +1,898 @@
+#!/bin/sh
+
+# -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=- #
+#       File:           WolvixBuild.include                                 #
+#       Author:         Wolven  <http://wolvix.org>                         #
+#       Copyright:      (c) 2008 Wolvix GNU/Linux                           #
+#       License:        http://creativecommons.org/licenses/BSD/            #
+#       Version:        1.0.14                                              #
+#       Updated:        21.03.2010                                          #
+# ------------------------------------------------------------------------- #
+#       Global functions for '<appname>.WolvixBuild'                        #
+#                                                                           #
+#       This file should reside in a directory called 'include' next        #
+#       to the packages, source, and tmp directories, with a symlink        #
+#       pointing to it in the Current Work Directory. ('CWD')               #
+#                                                                           #
+#       The build environment needs to be as follows, or the build scrip    #
+#       will fail unless you edit the paths according to your directory     #
+#       structure.                                                          #
+#                                                                           #
+#       ./WolvixBuildSystem                                                 #
+#       +-- include                            <- This file should be here  #
+#       +-- source/<category>/<appname>                                     #
+#       +-- packages/<category>                                             #
+#       +-- tmp                                                             #
+#                                                                           #
+#       Refer to the README.WolvixBuild file for detailed information       #
+#       about the build environment and how to use the build script.        #
+# -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=- #
+
+# ----------------------------------------------- RootCheck Function Start --- #
+RootCheck () {
+# Check to see if the user is running the build script as root.
+if [ "$(id -u)" = "0" ] && [ "$NEED_ROOT" != "true" ]; then
+  echo 
+  echo "++"
+  echo "|| WARNING:"
+  echo "|| You are running this script as ROOT. This can be DANGEROUS!"
+  echo "|| If fakeroot is not installed you'll be asked for the root password"
+  echo "|| at the end of this script when the package is being built."
+  echo "++"
+  echo 
+  echo -n "Press Ctrl+C to quit, or Enter to continue..."
+  read
+elif [ "$(id -u)" != "0" ] && [ "$NEED_ROOT" = "true" ]; then
+  echo 
+  echo "++"
+  echo "|| WARNING:"
+  echo "|| This script has a variable set to 'NEED_ROOT=true'"
+  echo "|| You are NOT running this scrip as ROOT, which might be required"
+  echo "|| to build this package properly. Either login as root, or fix the"
+  echo "|| build script so it doesn't require root access."
+  echo "++"
+  echo 
+  echo -n "Press Ctrl+C to quit, or Enter to continue..."
+  read
+fi
+}
+# ------------------------------------------------- RootCheck Function End --- #
+
+# -------------------------------------------- IncludeCheck Function Start --- #
+IncludeCheck () {
+# Check to see if a symlink to the include file (this file) exisist.
+# If it doesn't, then check if a copy is present in the directory:
+# ./build/includes and create a link if it does.
+if [ ! -e "$INCLUDE_LINK" ] && [ ! -e "$INCLUDE_FILE" ]; then
+  echo 
+  echo "++"
+  echo "|| ERROR:"
+  echo "|| No $INCLUDE_NAME global link, or local file was found,"
+  echo "|| and no global link could be created! =("
+  echo "||"
+  echo "|| Exiting script now..."
+  echo "++"
+  exit 1
+elif [ ! -e "$INCLUDE_LINK" ] && [ -e "$INCLUDE_FILE" ]; then
+  ln -sf $INCLUDE_FILE $INCLUDE_NAME
+fi
+
+# Check to see if the include file in the 'CWD' is a regular file or a
+# symlink, If it's a regular file and the global include file exist in the
+# includes directory, offer to remove the file and create a symlink instead.
+if [ "$CONFIRM_LINK" != "true" ]; then
+  if [ ! -L "$INCLUDE_LINK" ] && [ -e "$INCLUDE_FILE" ];then
+    rm -f $CWD/$INCLUDE_NAME && ln -sf $INCLUDE_FILE $INCLUDE_NAME
+#    echo 
+#    echo "++"
+#    echo "|| NOTE:"
+#    echo "|| Local $INCLUDE_NAME was successfully delted,"
+#    echo "|| and global link was successfully created! =)"
+#    echo "++"
+  fi
+fi
+if [ "$CONFIRM_LINK" = "true" ]; then
+  if [ ! -L "$INCLUDE_LINK" ] && [ -e "$INCLUDE_FILE" ];then
+    echo 
+    echo "++"
+    echo "|| QUESTION:"
+    echo "|| $INCLUDE_NAME is a local file and not a global link,"
+    echo "|| would you like to remove the local file and create a link to the"
+    echo "|| global $INCLUDE_NAME file instead?"
+    echo "++"
+    echo 
+    echo -n "Remove local file and create global link? [yes|no] "
+    read USER_INPUT
+      if [ "$USER_INPUT" = "yes" ] || [ "$USER_INPUT" = "y" ]; then
+        rm -f $CWD/$INCLUDE_NAME && ln -sf $INCLUDE_FILE $INCLUDE_NAME
+        echo 
+        echo "++"
+        echo "|| NOTE:"
+        echo "|| Local $INCLUDE_NAME was successfully delted,"
+        echo "|| and global link was successfully created! =)"
+        echo "++"
+      elif [ "$USER_INPUT" != "yes" ] || [ "$USER_INPUT" != "y" ]; then
+        echo 
+        echo "++"
+        echo "|| NOTE:"
+        echo "|| Link to global $INCLUDE_NAME was not created."
+        echo "|| Using the local $INCLUDE_NAME file instead."
+        echo "++"
+      fi
+  fi
+fi
+}
+# ---------------------------------------------- IncludeCheck Function End --- #
+
+# ---------------------------------------------- ErrorCheck Function Start --- #
+ErrorCheck () {
+# Exit on most errors.
+set -e
+trap 'echo "$0 FAILED at line $LINENO!" | tee $CWD/error-${PRGNAM}.log' ERR
+
+# Check for slack-desc in the CWD
+if [ ! -f "$CWD/slack-desc" ]; then
+  echo 
+  echo "++"
+  echo "|| ERROR:"
+  echo "|| Can't find slack-desc! Did you forget to create it?"
+  echo "++"
+  echo 
+  echo -n "Press Ctrl+C to quit, or Enter to continue..."
+  read
+fi
+# Check if the template.WolvixBuild has been named correctly
+SCRIPT_NAME="$PRGNAM.WolvixBuild"
+if [ ! -f "$CWD/$SCRIPT_NAME" ]; then
+  echo 
+  echo "++"
+  echo "|| ERROR:"
+  echo "|| The file name of the build script is not correct! Rename it to:"
+  echo "|| '$SCRIPT_NAME' and run the script again."
+  echo "||"
+  echo "|| Exiting script now..."
+  echo "++"
+  exit 1
+  fi
+# Check if the category is set
+if [ "$CAT" = "category" ] || [ "$CAT" = "" ]; then
+  echo 
+  echo "++"
+  echo "|| WARNING:"
+  echo "|| Package category is set to: '$CAT'"
+  echo "++"
+  echo 
+  echo -n "Press Ctrl+C to quit, or Enter to continue..."
+  read
+fi
+# Check if the appname is set
+if [ "$PRGNAM" = "appname" ] || [ "$PRGNAM" = "" ]; then
+  echo 
+  echo "++"
+  echo "|| WARNING:"
+  echo "|| Package name is set to: '$PRGNAM'"
+  echo "++"
+  echo 
+  echo -n "Press Ctrl+C to quit, or Enter to continue..."
+  read
+fi
+# Check if the version is set
+if [ "$VERSION" = "0.0.0" ] || [ "$VERSION" = "" ]; then
+  echo 
+  echo "++"
+  echo "|| WARNING:"
+  echo "|| Package version is set to: '$VERSION'"
+  echo "++"
+  echo 
+  echo -n "Press Ctrl+C to quit, or Enter to continue..."
+  read
+fi
+# Check if the archive type is set
+if [ "$ARCHIVE_TYPE" = "" ]; then
+  echo 
+  echo "++"
+  echo "|| ERROR:"
+  echo "|| Source archive type is not set!"
+  echo "||"
+  echo "|| Exiting script now..."
+  echo "++"
+  exit 1
+fi
+# Check if the package already exist in the output dir
+if [ "$CONFIRM_OVERWRITE" != "false" ]; then
+  if [ -f "$OUTPUT/$PRGNAM-$VERSION-$ARCH-$BUILD$TAG.tgz" ]; then
+    echo 
+    echo "++"
+    echo "|| WARNING:"
+    echo "|| $PRGNAM-$VERSION-$ARCH-$BUILD$TAG.tgz already exist!"
+    echo "++"
+    echo 
+    echo -n "Press Ctrl+C to quit, or Enter to continue..."
+    read
+  fi
+fi
+# Check if both OnlyShowIn and NotShowIn are defined, only one can exist
+if [ "$ONLY_SHOW_IN" != "" ] && [ "$NOT_SHOW_IN" != "" ]; then
+  echo 
+  echo "++"
+  echo "|| ERROR:"
+  echo "|| Use Either OnlyShowIn or NotShowIn. Both can not be set!"
+  echo "||"
+  echo "|| Exiting script now..."
+  echo "++"
+  exit 1
+fi
+
+# Warn if requiredbuilder is not found, but the script is set to use it.
+if [ ! -x /usr/bin/requiredbuilder ] && [ "$REQUIRED_BUILDER" = "true" ]; then
+  echo "++"
+  echo "WARNING:"
+  echo "|| You've set the script to use the RequiredBuilder, but it seems the"
+  echo "|| RequiredBuilder is not installed on your system. You can download"
+  echo "|| the package from: http://www.stabellini.net/requiredbuilder.html"
+  echo "++"
+  echo 
+  echo -n "Press Ctrl+C to quit, or Enter to continue..."
+  read
+fi
+}
+# ------------------------------------------------ ErrorCheck Function End --- #
+
+# ------------------------------------------ CheckSlackDesc Function Start --- #
+CheckSlackDesc () {
+if [ "$CHECK_SLACK_DESC" = "true" ] && [ -e "$CWD/slack-desc" ]; then
+  echo 
+  echo "|<----------------------------| slack-desc ruler |---------------------------->|"
+  echo 
+  cat $CWD/slack-desc | grep "^${PRGNAM}"
+  echo 
+  echo "|<----------------------------| slack-desc ruler |---------------------------->|"
+  echo 
+  echo -n "Does the slack-desc look OK? [Yes|no] "
+  read USER_INPUT
+  if [ "$USER_INPUT" = "no" ] || [ "$USER_INPUT" = "n" ]; then
+    echo 
+    echo "Exiting script!"
+    exit 1
+  fi
+fi
+}
+# -------------------------------------------- CheckSlackDesc Function End --- #
+
+# --------------------------------------------- CustomCheck Function Start --- #
+CustomCheck () {
+# Check if the custom source name and/or version variable is set.
+if [ "$ARCHIVE_NAME" = "" ]; then
+  ARCHIVE_NAME="$PRGNAM"
+fi
+if [ "$ARCHIVE_VERSION" = "" ]; then
+  ARCHIVE_VERSION="$VERSION"
+fi
+if [ "$SRC_DIR_NAME" = "" ]; then
+  SRC_DIR_NAME="$PRGNAM"
+fi
+if [ "$SRC_DIR_VERSION" = "" ]; then
+  SRC_DIR_VERSION="$VERSION"
+fi
+}
+# ----------------------------------------------- CustomCheck Function End --- #
+
+# --------------------------------------------- SourceCheck Function Start --- #
+SourceCheck () {
+# Source file availability:
+SOURCE="${ARCHIVE_NAME}${ARCHIVE_SEPARATOR}${ARCHIVE_VERSION}.${ARCHIVE_TYPE}"
+SRCURL="${SOURCE_URL}/${ARCHIVE_NAME}${ARCHIVE_SEPARATOR}${ARCHIVE_VERSION}.\
+${ARCHIVE_TYPE}"
+
+# Check if source is available, if not try to download it.
+if ! [ -f ${CWD}/${SOURCE} ]; then
+  if ! [ "${SRCURL}" = "" ]; then
+    echo 
+    echo "++"
+    echo "|| Source '${SOURCE}' not available yet... will download now:"
+    echo "++"
+    wget -v -O "${CWD}/${SOURCE}" "${SRCURL}"
+      if [ $? -ne 0 ]; then
+        echo 
+        echo "++"
+        echo "|| Downloading '${SOURCE}' failed... aborting the build."
+	echo "++"
+        mv -f "${CWD}/${SOURCE}" "${CWD}/${SOURCE}".FAIL
+        exit 1
+      fi
+  else
+    echo 
+    echo "++"
+    echo "|| File '${SOURCE}' not available... aborting the build."
+    echo "++"
+    exit 1
+  fi
+fi
+
+if [ "$1" == "--download" ]; then
+  echo 
+  echo "++"
+  echo "|| Download complete."
+  echo "++"
+  exit 0
+fi
+}
+# ----------------------------------------------- SourceCheck Function End --- #
+
+# ---------------------------------------------- CreateDirs Function Start --- #
+CreateDirs () {
+# Remove old build files if they exist.
+if [ -d "$PKG" ]; then
+  rm -rf $PKG
+fi
+# Create the required directories if they don't exist.
+if [ ! -d $TMP ]; then
+  mkdir -p $TMP
+fi
+if [ ! -d $PKG ]; then
+  mkdir -p $PKG
+fi
+if [ ! -d $OUTPUT ]; then
+  mkdir -p $OUTPUT
+fi
+}
+# ------------------------------------------------ CreateDirs Function End --- #
+
+# ------------------------------------------------ CleanTmp Function Start --- #
+CleanTmp () {
+# Change to the temp directory and remove old source files.
+  cd $TMP
+if [ $CLEAN_TMP != "false" ]; then
+  if [ "$SOURCE_DIRECTORY" != "" ]; then
+    rm -rf $SOURCE_DIRECTORY
+  else
+    rm -rf $SRC_DIR_NAME$SRC_DIR_SEPARATOR$SRC_DIR_VERSION
+  fi
+fi
+}
+# -------------------------------------------------- CleanTmp Function End --- #
+
+# ------------------------------------------ ExtractArchive Function Start --- #
+ExtractArchive () {
+# Extract the source archive.
+echo 
+echo "++"
+echo "|| Extracting the source tarball for $PRGNAM..."
+echo "++"
+
+if `file $CWD/${SOURCE} | grep -q ": bzip2"`; then
+  tar -xjvf $CWD/${SOURCE}
+elif `file $CWD/${SOURCE} | grep -qi ": zip"`; then
+  unzip $CWD/${SOURCE}
+else
+  tar -xzvf $CWD/${SOURCE}
+fi
+}
+# -------------------------------------------- ExtractArchive Function End --- #
+
+# ------------------------------------------ SourceDirCheck Function Start --- #
+SourceDirCheck () {
+# Check if the source directory exists, if not exit.
+if [ -d "$TMP/$SRC_DIR_NAME$SRC_DIR_SEPARATOR$SRC_DIR_VERSION" ]; then
+  cd $SRC_DIR_NAME$SRC_DIR_SEPARATOR$SRC_DIR_VERSION
+elif [ "$SOURCE_DIRECTORY" != "" ] && [ -d "$TMP/$SOURCE_DIRECTORY" ]; then
+  cd $SOURCE_DIRECTORY
+else
+  echo 
+  echo "++"
+  echo "|| ERROR:"
+  echo "|| Source directory does not exist!"
+  echo "|| Check your variables and/or the source tarball."
+  echo "||"
+  echo "|| Exiting script now..."
+  echo "++"
+  exit 1
+fi
+}
+# -------------------------------------------- SourceDirCheck Function End --- #
+
+# ---------------------------------------------- ApplyPatch Function Start --- #
+ApplyPatch () {
+# Apply patch if it exists.
+for (( i = 0; i < ${#PATCH_NAME[*]} && ${#PATCH_GZIPPED[*]} && ${#PATCH_LEVEL[*]}; i++ )) ; do
+if [ -f ${CWD}/${PATCH_NAME[$i]}.gz ] && [ "${PATCH_GZIPPED[$i]}" = "true" ]; then
+  zcat $CWD/${PATCH_NAME[$i]}.gz | patch ${PATCH_LEVEL[$i]} --verbose 2>&1 | \
+  tee $CWD/patch-${PRGNAM}.log
+elif  [ -f ${CWD}/${PATCH_NAME[$i]} ] && [ "${PATCH_GZIPPED[$i]}" != "true" ]; then
+  cat ${CWD}/${PATCH_NAME[$i]} | patch ${PATCH_LEVEL[$i]} --verbose 2>&1 | \
+  tee $CWD/patch-${PRGNAM}.log
+fi
+done
+}
+# ------------------------------------------------ ApplyPatch Function End --- #
+
+# ------------------------------------------------- SetArch Function Start --- #
+SetArch () {
+# Set the compiler arch.
+if [ "$ARCH" = "i486" ]; then
+  SLKCFLAGS="-O2 -march=i486 -mtune=i686"
+  LIBDIRSUFFIX=""
+elif [ "$ARCH" = "i686" ]; then
+  SLKCFLAGS="-O2 -march=i686 -mtune=i686"
+  LIBDIRSUFFIX=""
+elif [ "$ARCH" = "x86_64" ]; then
+  SLKCFLAGS="-O2 -fPIC"
+  LIBDIRSUFFIX="64"
+fi
+}
+# --------------------------------------------------- SetArch Function End --- #
+
+# ------------------------------------------ SetPermissions Function Start --- #
+SetPermissions () {
+# Make sure ownerships and permissions are sane.
+chmod -R a-s,u+rw,go-w+r .
+}
+# -------------------------------------------- SetPermissions Function End --- #
+
+# ------------------------------------------- StripBinaries Function Start --- #
+StripBinaries () {
+# Strip binaries and libraries.
+if [ "$STRIP_BINARIES" = "true" ]; then
+find $PKG -type f | xargs file | grep "LSB executable" | cut -f 1 -d : | xargs \
+  strip --strip-unneeded 2> /dev/null || echo "No binaries to strip"
+find $PKG -type f | xargs file | grep "shared object" | cut -f 1 -d : | xargs \
+  strip --strip-unneeded 2> /dev/null || echo "No shared objects to strip"
+find $PKG -type f | xargs file | grep "current ar archive" | cut -f 1 -d : | \
+  xargs strip -g 2> /dev/null || echo "No archives to strip"
+fi
+}
+# --------------------------------------------- StripBinaries Function End --- #
+
+# ------------------------------------------- CompressFiles Function Start --- #
+CompressFiles () {
+# Compress man pages.
+if [ -d $PKG/usr/man ]; then
+( cd $PKG/usr/man
+  find . -type f -exec gzip -9 {} \;
+  for i in $( find . -type l ) ; do ln -s $( readlink $i ).gz $i.gz ; rm $i ; done
+)
+elif [ -d $PKG//opt/kde/share/man ]; then
+( cd $PKG/usr/man
+  find . -type f -exec gzip -9 {} \;
+  for i in $( find . -type l ) ; do ln -s $( readlink $i ).gz $i.gz ; rm $i ; done
+)
+fi
+
+# Compress info pages if they exist and remove the dir file.
+if [ -d $PKG/usr/info ]; then
+  gzip -9 $PKG/usr/info/*.info
+  rm -f $PKG/usr/info/dir
+elif [ -d $PKG/usr/share/info ]; then
+  mkdir -p $PKG/usr/info
+  cp -a $PKG/usr/share/info/* $PKG/usr/info
+  rm -rf $PKG/usr/share/info
+  gzip -9 $PKG/usr/info/*.info
+  rm -f $PKG/usr/info/dir
+fi
+}
+# --------------------------------------------- CompressFiles Function End --- #
+
+# ----------------------------------------------- CopyFiles Function Start --- #
+CopyFiles () {
+# Copy program documentation into the package. 
+mkdir -p $PKG/usr/doc/$PRGNAM-$VERSION
+if [ "$COPY_DOCS" != "false" ]; then
+cp -a $DOCS $PKG/usr/doc/$PRGNAM-$VERSION
+find $PKG/usr/doc/$PRGNAM-$VERSION -type f -exec chmod 644 {} \;
+fi
+# Check for doc directory in /usr/share
+if [ -d "$PKG/usr/share/doc/$PRGNAM" ]; then
+  echo 
+  echo "++"
+  echo "|| WARNING:"
+  echo "|| There's a '$PRGNAM' dir in '/usr/share/doc' do you should move"
+  echo "|| its content to the '/usr/doc/$PRGNAM-$VERSION' directory."
+  echo "++"
+  echo 
+  echo -n "Move files to /usr/doc/$PRGNAM-$VERSION? [yes|no] "
+  USER_INPUT="" ; read USER_INPUT
+  if [ "$USER_INPUT" = "yes" ] || [ "$USER_INPUT" = "y" ]; then
+    mv $PKG/usr/share/doc/$PRGNAM/* $PKG/usr/doc/$PRGNAM-$VERSION
+    rm -rf $PKG/usr/share/doc
+    echo 
+    echo "++"
+    echo "|| NOTE:"
+    echo "|| The files in '/usr/share/doc/$PRGNAM' was moved."
+    echo "++"
+  elif [ "$USER_INPUT" != "yes" ] || [ "$USER_INPUT" != "y" ]; then
+    echo 
+    echo "++"
+    echo "|| NOTE:"
+    echo "|| The files in '/usr/share/doc/$PRGNAM' was not moved."
+    echo "++"
+  fi
+fi
+# Copy the slack-desc to $PKG/install.
+mkdir -p $PKG/install
+cat $CWD/slack-desc > $PKG/install/slack-desc
+
+# Copy custom doinst.sh to $PKG/install if it exists.
+if [ -f $CWD/doinst.sh ]; then
+  cat $CWD/doinst.sh >> $PKG/install/doinst.sh
+elif [ -f $CWD/doinst.sh.gz ]; then
+  zcat $CWD/doinst.sh >> $PKG/install/doinst.sh
+fi
+
+# Look for slack-conflicts
+if [ -f "$CWD/slack-conflicts" ]; then
+  cat $CWD/slack-conflicts > $PKG/install/slack-conflicts
+fi
+
+# Look for slack-suggests
+if [ -f "$CWD/slack-suggests" ]; then
+  cat $CWD/slack-suggests > $PKG/install/slack-suggests
+fi
+
+}
+# ------------------------------------------------- CopyFiles Function End --- #
+
+# ------------------------------------------ AddBuildSystem Function Start --- #
+AddBuildSystem () {
+# Add fuill build system, sans source to /usr/src/WolvixBuildSystem
+# (build scripts, slack-desc, patch and custom icon)
+WBS_DIR="$PKG/usr/doc/$PRGNAM-$VERSION/WolvixBuildSystem"
+
+if [ "$ADD_BUILD_SYSTEM" = "true" ]; then
+# Add build scripts.
+  mkdir -p $WBS_DIR/{include,source/$CAT/$PRGNAM}
+  cat $CWD/$PRGNAM.WolvixBuild > \
+  $WBS_DIR/source/$CAT/$PRGNAM/$PRGNAM.WolvixBuild
+  cat $CWD/$INCLUDE_NAME > $WBS_DIR/include/$INCLUDE_NAME
+# Add slack-desc.
+  cat $CWD/slack-desc  > $WBS_DIR/source/$CAT/$PRGNAM/slack-desc
+fi
+# Look for the README.WolvixBuild file and add it if it's found.
+if [ "$ADD_BUILD_SYSTEM" = "true" ]; then
+  if [ -e "$CWD/../../../README.WolvixBuild" ]; then
+    cat $CWD/../../../README.WolvixBuild > $WBS_DIR/README.WolvixBuild
+  fi
+fi
+# Look for patch and add it if found.
+if [ "$ADD_BUILD_SYSTEM" = "true" ]; then
+for (( i = 0; i < ${#PATCH_NAME[*]} && ${#PATCH_GZIPPED[*]} && ${#PATCH_LEVEL[*]}; i++ )) ; do
+  if [ -f ${CWD}/${PATCH_NAME[$i]}.gz ] && [ "${PATCH_GZIPPED[$i]}" = "true" ]; then
+    cp ${CWD}/${PATCH_NAME[$i]}.gz $WBS_DIR/source/$CAT/$PRGNAM
+  elif  [ -f ${CWD}/${PATCH_NAME[$i]} ] && [ "${PATCH_GZIPPED[$i]}" != "true" ]; then
+    cp ${CWD}/${PATCH_NAME[$i]} $WBS_DIR/source/$CAT/$PRGNAM
+  fi
+done
+fi
+# Look for custom icon and add it if found.
+if [ "$ADD_BUILD_SYSTEM" = "true" ]; then
+  if [ "$ADD_ICON" = "true" ] &&  [ -f "$CWD/$PRGNAM.png" ]; then
+    cp $CWD/$PRGNAM.png $WBS_DIR/source/$CAT/$PRGNAM
+  elif [ "$ADD_ICON" = "true" ] &&  [ -f "$CWD/$PRGNAM.svg" ]; then
+    cp $CWD/$PRGNAM.svg $WBS_DIR/source/$CAT/$PRGNAM
+  fi
+fi
+# Look for custom doinst.sh and add it if found.
+if [ "$ADD_BUILD_SYSTEM" = "true" ]; then
+  if [ -f $CWD/doinst.sh ]; then
+    cat $CWD/doinst.sh > $WBS_DIR/source/$CAT/$PRGNAM/doinst.sh
+  elif [ -f $CWD/doinst.sh.gz ]; then
+    cp $CWD/doinst.sh.gz $WBS_DIR/source/$CAT/$PRGNAM/doinst.sh.gz
+  fi
+fi
+# Look for custom slack-required and add it if found.
+if [ "$ADD_BUILD_SYSTEM" = "true" ]; then
+  if [ -f $CWD/slack-required ] && [ "$REQUIRED_BUILDER" != "true" ]; then
+    cat $CWD/slack-required > $WBS_DIR/source/$CAT/$PRGNAM/slack-required
+  fi
+fi
+# Look for slack-conflicts
+if [ "$ADD_BUILD_SYSTEM" = "true" ]; then
+  if [ -f $CWD/slack-conflicts ]; then
+    cat $CWD/slack-conflicts > $WBS_DIR/source/$CAT/$PRGNAM/slack-conflicts
+  fi
+fi
+# Look for slack-suggests
+if [ "$ADD_BUILD_SYSTEM" = "true" ]; then
+  if [ -f $CWD/slack-suggests ]; then
+    cat $CWD/slack-suggests > $WBS_DIR/source/$CAT/$PRGNAM/slack-suggests
+  fi
+fi
+# Copy additional files listed in FILE_LIST
+if [ "$ADD_BUILD_SYSTEM" = "true" ]; then
+  for FILES in $FILE_LIST; do
+    cp $CWD/$FILES $WBS_DIR/source/$CAT/$PRGNAM
+  done
+fi
+# Create a tar.bz2 archive and delete the "source" directory.
+if [ "$ADD_BUILD_SYSTEM" = "true" ] ; then
+  if [ -d "$WBS_DIR" ]; then
+    ( cd $PKG/usr/doc/$PRGNAM-$VERSION
+      tar -cjf WolvixBuildSystem.tar.bz2 WolvixBuildSystem/
+      rm -rf WolvixBuildSystem/
+    )
+  fi
+fi
+}
+# -------------------------------------------- AddBuildSystem Function End --- #
+
+# -------------------------------------------- GConfSchemas Function Start --- #
+GConfSchemas () {
+# Add GConf schemas.
+if [ "$GCONF_SCHEMAS" = "true" ]; then
+  mkdir -p $PKG/etc/gconf/gconf.xml.defaults
+  GCONF_CONFIG_SOURCE="xml::$PKG/etc/gconf/gconf.xml.defaults"
+  export GCONF_CONFIG_SOURCE
+for schema in $PKG/etc/gconf/schemas/*.schemas; do
+  if [ "$schema" != "$PKG/etc/gconf/schemas/*.schemas" ]; then
+    gconftool-2 --makefile-install-rule $schema
+  fi
+done
+for entry in $PKG/etc/gconf/schemas/*.entries; do
+  if [ "$entry" != "$PKG/etc/gconf/schemas/*.entries" ]; then
+    gconftool-2 --direct --config-source=$GCONF_CONFIG_SOURCE --load $entry
+  fi
+done
+fi
+}
+# ---------------------------------------------- GConfSchemas Function End --- #
+
+# ----------------------------------------------- FixShowIn Function Start --- #
+FixShowIn () {
+# Add or remove OnlyShowIn string in 'desktop entry' file.
+if [ "$ONLY_SHOW_IN" != "" ] && [ "$ONLY_SHOW_IN" != "ALL" ]; then
+  for a in $(find $PKG/ -type f -name \*.desktop); do
+  sed -i "/OnlyShowIn=/ d" $a
+  sed -i "/\[Desktop Entry\]/ aOnlyShowIn=$ONLY_SHOW_IN;" $a
+done
+elif [ "$ONLY_SHOW_IN" = "ALL" ]; then
+  for a in $(find $PKG/ -type f -name \*.desktop); do
+  sed -i "/OnlyShowIn=/ d" $a
+done
+fi
+# Add or remove NotShowIn string in 'desktop entry' file.
+if [ "$NOT_SHOW_IN" != "" ] && [ "$NOT_SHOW_IN" != "NONE" ]; then
+  for a in $(find $PKG/ -type f -name \*.desktop); do
+  sed -i "/NotShowIn=/ d" $a
+  sed -i "/\[Desktop Entry\]/ aNotShowIn=$NOT_SHOW_IN;" $a
+done
+elif [ "$NOT_SHOW_IN" = "NONE" ]; then
+  for a in $(find $PKG/ -type f -name \*.desktop); do
+  sed -i "/NotShowIn=/ d" $a
+done
+fi
+}
+# ------------------------------------------------- FixShowIn Function End --- #
+
+# ----------------------------------------- DescriptionText Function Start --- #
+DescriptionText () {
+# Generate description text file from slack-desc. (Optional)
+if [ "$DESCRIPTION_TEXT" = "true" ]; then
+  cat $PKG/install/slack-desc | grep "^${PRGNAM}" > \
+  $OUTPUT/$PRGNAM-$VERSION-$ARCH-$BUILD$TAG.txt
+fi
+}
+# ------------------------------------------- DescriptionText Function End --- #
+
+# --------------------------------------------- AddRequired Function Start --- #
+
+AddRequired () {
+# Copy custom slack-required to $PKG/install if it exists.
+if [ -f $CWD/slack-required ] && [ "$REQUIRED_BUILDER" != "true" ]; then
+  cat $CWD/slack-required > $PKG/install/slack-required
+fi
+
+# Generate slack-required file and place a copy in the 'CWD'.
+if [ -x /usr/bin/requiredbuilder ] && [ "$REQUIRED_BUILDER" = "true" ]; then
+  echo 
+  echo "++"
+  echo "|| Generating slack-required..."
+  echo "++"
+# Exclude and/or add packages to the slack-required.
+EXCLUDE="$REQ_EXCLUDE" \
+ADD="$REQ_ADD" \
+  requiredbuilder -v -y -s $CWD $PKG
+fi
+}
+# ----------------------------------------------- AddRequired Function End --- #
+
+# ----------------------------------------- UpdateDatabase Function Start --- #
+UpdateDatabase () {
+# If the package has a desktop entry then add code to update the
+# mime-databsase, desktop-database and icon-cache in the doinst.sh
+GENERIC_DIR="$PKG/usr/share/applications"
+GNOME_DIR="$PKG/user/share/gnome/apps"
+KDE_DIR="$PKG/opt/kde/share/applications"
+
+if [ "$UPDATE_DATABASE" = "true" ]; then
+# Look for the directories which hold desktop entries.
+  if [ -d "$GENERIC_DIR" ] || [ -d "$GNOME_DIR" ] || [ -d "$KDE_DIR" ]; then
+
+# Update mime database.
+    echo "if [ -x /usr/bin/update-mime-database ]; then
+    /usr/bin/update-mime-database /usr/share/mime &> /dev/null
+    fi" >> $PKG/install/doinst.sh
+    echo "" >> $PKG/install/doinst.sh
+# Update desktop database.
+    echo "if [ -x /usr/bin/update-desktop-database ]; then
+    /usr/bin/update-desktop-database 1> /dev/null &> /dev/null
+    fi" >> $PKG/install/doinst.sh
+    echo "" >> $PKG/install/doinst.sh
+# Update icon cache.
+    echo "if [ -x /usr/bin/gtk-update-icon-cache ]; then
+    /usr/bin/gtk-update-icon-cache  -f -q /usr/share/icons/hicolor &> /dev/null
+    fi" >> $PKG/install/doinst.sh
+    echo "" >> $PKG/install/doinst.sh
+  fi
+fi
+}
+# -------------------------------------------- UpdateDatabase Function End --- #
+
+# -------------------------------------------- BuildPackage Function Start --- #
+BuildPackage () {
+# Build the package and remove the temporary source and build files.
+cd $PKG
+BUILD_PACKAGE="
+if [ "$RESET_PERMISSIONS" = "true" ]; then
+chown -R root.root .
+find . -perm 664 -exec chmod 644 {} \;
+find . -perm 777 -exec chmod 755 {} \;
+fi
+/sbin/makepkg -l y -c n $OUTPUT/$PRGNAM-$VERSION-$ARCH-$BUILD$TAG.tgz \
+2>&1 | tee $CWD/makepkg-${PRGNAM}.log
+
+if [ -d "$TMP/$SRC_DIR_NAME$SRC_DIR_SEPARATOR$SRC_DIR_VERSION" ]; then
+  ( cd $TMP
+  rm -rf $SRC_DIR_NAME$SRC_DIR_SEPARATOR$SRC_DIR_VERSION
+  )
+fi
+if [ -d "$TMP/$SOURCE_DIRECTORY" ]; then
+  ( cd $TMP
+  rm -rf $SOURCE_DIRECTORY
+  )
+fi
+
+rm -rf $PKG
+"
+if [ "$(which fakeroot 2> /dev/null)" ]; then
+  echo 
+  echo "$BUILD_PACKAGE" | fakeroot
+else
+  echo 
+  echo 
+  echo "Please enter the root password..."
+  echo 
+  su -c "$BUILD_PACKAGE"
+fi
+
+}
+# ---------------------------------------------- BuildPackage Function End --- #
+
+# ---------------------------------------- GenerateChecksum Function Start --- #
+GenerateChecksum () {
+if [ "$PKG_CHECKSUM" = "md5sum" ] || [ "$PKG_CHECKSUM" = "md5" ];then
+  ( cd $OUTPUT
+    md5sum $PRGNAM-$VERSION-$ARCH-$BUILD$TAG.tgz > \
+    $PRGNAM-$VERSION-$ARCH-$BUILD$TAG.tgz.md5
+  )
+  echo 
+  echo "++"
+  echo "|| Generating md5sum..."
+  echo "++"
+elif [ "$PKG_CHECKSUM" = "sha1sum" ] || [ "$PKG_CHECKSUM" = "sha1" ];then
+  ( cd $OUTPUT
+    sha1sum $PRGNAM-$VERSION-$ARCH-$BUILD$TAG.tgz > \
+    $PRGNAM-$VERSION-$ARCH-$BUILD$TAG.tgz.sha1
+  )
+  echo 
+  echo "++"
+  echo "|| Generating sha1sum..."
+  echo "++"
+fi
+}
+# ------------------------------------------ GenerateChecksum Function End --- #
+
+# ------------------------------------------- ReleaseSource Function Start --- #
+ReleaseSource () {
+if [ "$RELEASE_SOURCE" = "true" ] && [ -L "$INCLUDE_LINK" ]; then
+  rm -f $CWD/$INCLUDE_NAME
+  cat $INCLUDE_FILE > $CWD/$INCLUDE_NAME
+fi
+}
+# --------------------------------------------- ReleaseSource Function End --- #
+
+# ------------------------------------------------ KeepLogs Function Start --- #
+KeepLogs () {
+# If $KEEP_LOGS is true move the log files to $CWD/logs, if not delete them.
+if [ "$KEEP_LOGS" = "true" ]; then
+  mkdir -p $CWD/logs && mv -f $CWD/*.log $CWD/logs
+elif [ "$KEEP_LOGS" != "true" ]; then
+  rm -f $CWD/*.log
+fi
+}
+# -------------------------------------------------- KeepLogs Function End --- #
+
+# --------------------------------------------- ShowSummary Function Start --- #
+ShowSummary () {
+# Get package size
+SUM_PACKAGE_NAME=$OUTPUT/$PRGNAM-$VERSION-$ARCH-$BUILD$TAG.tgz
+for pkgsize in $(du -h0 $SUM_PACKAGE_NAME | cut -f 1); do
+SUM_SIZE=$pkgsize
+SUM_BYTE="B"
+done
+# See if the bianries was stripped
+if [ "$STRIP_BINARIES" = "true" ]; then
+  SUM_STRIP="Yes"
+else
+  SUM_STRIP="No"
+fi
+# See if description text was created.
+if [ "$DESCRIPTION_TEXT" = "true" ]; then
+  SUM_DESC="$PRGNAM-$VERSION-$ARCH-$BUILD$TAG.txt"
+else
+  SUM_DESC="None"
+fi
+# See if slack-required was used.
+if [ -e "$CWD/slack-required" ]; then
+  SUM_REQ="Yes"
+else
+  SUM_REQ="No"
+fi
+# See if build system was added
+if [ "$ADD_BUILD_SYSTEM" = "true" ]; then
+  SUM_BUILD="Included"
+else
+  SUM_BUILD"Not included"
+fi
+# See if cheksum was created.
+if [ "$PKG_CHECKSUM" = "md5sum" ] || [ "$PKG_CHECKSUM" = "md5" ];then
+  SUM_CHECK="md5sum"
+elif [ "$PKG_CHECKSUM" = "sha1sum" ] || [ "$PKG_CHECKSUM" = "sha1" ];then
+  SUM_CHECK="sha1sum"
+else
+  SUM_CHECK="None"
+fi
+# See if logs was stored.
+if [ "$KEEP_LOGS" = "true" ]; then
+  SUM_LOGS="Stored"
+else
+  SUM_LOGS="Removed"
+fi
+# Build timer
+SUM_HOURS=$(($SECONDS / 3600))
+SUM_SECONDS=$(($SECONDS % 3600))
+SUM_MINUTES=$(($SECONDS / 60))
+SUM_SECONDS=$(($SECONDS % 60))
+
+# Echo summary if set to true.
+if [ "$SHOW_SUMMARY" = "true" ]; then
+echo "+---------------------+--------------------------------------------------------+"
+echo "| Package name        |  $PRGNAM-$VERSION-$ARCH-$BUILD$TAG.tgz"
+echo "|---------------------|--------------------------------------------------------|"
+echo "| Package size        |  $SUM_SIZE$SUM_BYTE"
+echo "|---------------------|--------------------------------------------------------|"
+echo "| Package category    |  $CAT"
+echo "|---------------------|--------------------------------------------------------|"
+echo "| Package description |  $SUM_DESC"
+echo "|---------------------|--------------------------------------------------------|"
+echo "| Checksum type       |  $SUM_CHECK"
+echo "|---------------------|--------------------------------------------------------|"
+echo "| Dependencies added  |  $SUM_REQ"
+echo "|---------------------|--------------------------------------------------------|"
+echo "| Build system        |  $SUM_BUILD"
+echo "|---------------------|--------------------------------------------------------|"
+echo "| Build logs          |  $SUM_LOGS"
+echo "|---------------------|--------------------------------------------------------|"
+echo "| Build time          |  $SUM_HOURS hour(s) $SUM_MINUTES minute(s) $SUM_SECONDS second(s)"
+echo "+---------------------+--------------------------------------------------------+"
+echo 
+fi
+}
+# ----------------------------------------------- ShowSummary Function End --- #
+
+# ---------------------------------------------- ExitScript Function Start --- #
+ExitScript () {
+# Everything's OK, exit with '0' error status.
+exit 0
+}
+# ------------------------------------------------ ExitScript Function End --- #
+
+# --- END OF FILE ---

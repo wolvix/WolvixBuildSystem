@@ -1,0 +1,236 @@
+                                       _     _     
+                             _ _ _ ___| |_ _|_|_ _ 
+                            | | | | . | | | | |_'_|
+                            |_____|___|_|\_/|_|_,_|
+                                        -gnu/linux-
+
+
+0. File Information
+1. Introduction.
+2. The Scripts.
+3. Build Environment.
+4. Package Categories.
+5. Package Standards.
+
+
+ 0. File Information
+ -------------------
+        File:                   README.WolvixBuild
+        Author:                 Wolven  <http://wolvix.org/>
+        Copyright:              (c) 2008 Wolvix GNU/Linux
+        Version:                1.0.1
+        Updated:                12.09.2008
+
+
+ 1. Introduction:
+ ----------------
+
+This is the README file for the 'WolvixBuildSystem', which is a set of shell
+scripts used to build Slackware type software packages to be used on the
+Wolvix GNU/Linux operating system.
+
+This document will not go into details about how to build software packages,
+it's purpose is mainly to explain briefly how the WolvixBuildSystem works
+and what it's requirements are. For details and standards about building
+Slackware type software packages, please refer to the following web pages:
+
+        http://www.linuxpackages.net/howto.php
+        http://slackwiki.org/Building_A_Package
+        http://slackwiki.org/SlackBuild_Scripts
+        http://slackwiki.org/Writing_A_SlackBuild_Script
+
+Credits for portions of the code in the WolvixBuildSystem go to the following
+people, or websites:
+
+        Patrick Volkerding      http://www.slackware.com
+        Eric Hameleers          http://www.slackware.com/~alien/
+        SlackBuilds.org         http://slackbuilds.org/
+        Slackbuilds.net         http://www.slackbuilds.net/
+        Slacky.eu               http://www.slacky.eu/
+        DarkVision              http://mkanet.de/
+
+There are many different ways of building packages with the use of scripts,
+the WolvixBuildSystem is designed around how I like to do it. Some package
+builders might find that the system is "bloated", as it contains a lot more
+code than traditional SlackBuild scripts. I've tried to design a system which
+covers most scenarios, and that's largely controlled by setting variable
+options. It's however near impossible to create a "perfect" system, since
+there are varying degrees of code quality in the 'Makefiles', and not all
+software authors use defacto standards when packaging their source archives.
+
+Also note that I'm a novice shell scripter, so the code is probably not as
+efficient and well organized as it could/should be.
+
+
+ 2. The Scripts:
+ ---------------
+
+WolvixBuild.include:    This script holds all the functions with the code
+                        that does most of the work in the build system.
+                        The code here should not need to be edited by the
+                        package builder. It serves as a global include file
+                        to be used for all build scripts created from the
+                        template build script file.
+                        
+                        The include file is called by the build script at the
+                        the top of the file, if the build script can't find
+                        the include file, the build process will fail.
+                        
+template.WolvixBuild:   This is the template script which contains all the
+                        vaiables and options which the package builder needs
+                        to edit. The template file should be renamed according
+                        to the 'PRGNAM' variable used in the build script.
+                        
+                        Example: If you build a program called 'Foobar', the
+                        build script name should be 'foobar.WolvixBuild'
+                        (Note the use of lowercase letters in the name; this
+                        is standard naming policy for Slackware packages.)
+                        
+                        If the name of the build script is not the same as the
+                        name used in the 'PRGNAM' variable the build process
+                        will fail.
+
+
+ 3. Build Environment:
+ ---------------------
+
+As oppsed to traditional SlackBuilds, the WolvixBuildSystem does not use the
+/tmp directory for compiling or package generation. It's designed to output
+the finished packages to category (see below) defined by the 'CAT' variable
+in the build script. This is to make it easier to create a package repository
+of all the packages, and to save time by eliminating the sorting process of
+the packages after they're built, recompiled, or updated.
+
+I've decided not to use /tmp for the source extraction, compiling and the
+packaging process for two reasons. The first reason is that if I'm building
+on a live Wolvix system, all the RAM might be consumed by using /tmp as this
+directory will reside in the computers memory. The second reason is that
+sometimes you need to look at the source and/or packaging directory to figure
+out why the build process fails, or why some files and/or directories doesn't
+end up in the package as they should. The /tmp directory on a Linux system is
+usually full of obsucre files and directories making it hard to find what
+you're actually looking for.
+
+The directory layout of the build environment is as follows:
+
+ ./WolvixBuildSystem              < Top level work directory
+ +-- include                      < Contains the WolvixBuild.include
+ +-- source/<category>/<appname>  < Source archive, build script and files
+ +-- packages/<category>          < Output directory for the package
+ +-- tmp                          < Temporary work directory
+
+Here's a break down and explaination of the build environment layout:
+
+ ./WolvixBuildSystem
+ -------------------
+Top level work directory, this can be named anything, but I've chosen to use
+the name 'WolvixBuildSystem'.
+
+ +-- include
+ -----------
+This is a subdirectory of the 'build' directory, and it's used to house the
+include file. The build script will look for the 'WolvixBuild.include' file in
+this location, and create a symlink to it in it's Current Work Directory (CWD)
+
+The idea is that the include file here should act as global include file for
+all the build scripts you might have.
+
+ +-- source/<category>/<appname>
+ -------------------------------
+A subdirectory of 'build' which contains one or more subdirectories with
+package categories. (See the Package Categories sections for details.)
+In the category directory there's a subdirectory for each source archive.
+Example: For the IDE program called Geany (http://www.geany.org/) I'd create
+the following directories: +--source/development/geany
+
+This directory is what's referd to as 'CWD', or Current Work Directory, and
+it should in addition to the source archive and build script, also contain the
+'slack-desc' file, patches, optional icon files, and a link to, or a copy of
+the WolvixBuild.include file.
+
+If the WolvixBuild.include file is present in the 'include' directory a
+symlink to it will be automatically creates in this directory. If a "real"
+copy of the include file is in this directory, and the 'include' directory
+also contains a copy of the WolvixBuild.include, you'll be asked if you'd
+like to remove the copy in the 'CWD' and create a link to the global include
+file instead.
+
+Here's how it might look, using Geany as an example:
+
+ +--source/development/geany/
+                            |-- geany-0.14.tar.gz
+                            |-- geany.WolvixBuild
+                            |-- WolvixBuild.include
+                            |-- slack-desc
+
+ +-- packages/<category>
+ -----------------------
+This is the output directory for the finished packages and the 'category' name
+is defined by the 'CAT' variable in the build script. Still using Geany as an
+example, it might look like this:
+
+ +-- packages/development/
+                         |-- geany-0.14-i486-1wlv.tgz
+                         |-- geany-0.14-i486-1wlv.txt
+
+ +-- tmp
+ -------
+The temporary directory where the source archives are extracted, compiled and
+where packages are generated before they are moved to the output directory.
+
+
+ 4. Package Categories
+ ---------------------
+
+The main package categories are as follows:
+
+        desktop
+        development
+        games
+        graphics
+        kids
+        libraries
+        multimedia
+        network
+        office
+        scientific
+        system
+        utilities
+
+Which packages belong where, I'll leave up to you to decide. For examples of
+additional package categories have a look at the Wolvix package repository:
+
+        http://repo.wolvix.org/
+
+
+ 5. Package Standards:
+ ---------------------
+
+I'll briefly describe the standards for Slackware packages in this section.
+For more details please refer to the web pages in the Introduction at the top.
+
+The package name should be as follows: 'appname-version-arch-build.tgz'
+Note that all the different strings are separated by a dash. ("-") It is not
+allowed to use dashes in the version string. Also note that it's customary to
+only use lowercase letters for the 'appname'.
+
+All man pages and info files should be compressed with gzip to save space, and
+they should be placed in the /usr/man or /usr/info directory. Document files
+should be placed in a /usr/doc/appname-version directory.
+
+Additional Wolvix standards are as follows: All GUI applications should have
+a 'appname.desktop' file and an accompanying icon in either PNG and/or SVG
+format. See: <http://standards.freedesktop.org/desktop-entry-spec/latest/>
+for details and standards regarding 'desktop entries'. If the source you're
+building does not include a 'desktop entry' file and/or an icon, you'll have
+to create a 'desktop entry' in the build script and include a suitable icon
+yourself.
+
+All packages should contain a 'slack-required' file with package dependencies.
+The build script is set to use the RequiredBuilder to automatically generate
+the 'slack-required' file. You'll find Stefano Stabellini's RequiredBuilder
+at this website: <http://www.stabellini.net/requiredbuilder.html>
+
+A copy of the build script used to build the package should be included in
+the 'doc' (/usr/doc/appname-version/) directory. This is done automatically by
+the WolvixBuildSystem.

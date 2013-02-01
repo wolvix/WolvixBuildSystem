@@ -1,0 +1,298 @@
+#!/bin/sh
+
+# WolvixBuild for:      <appname>
+
+# -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=- #
+#       File:           template.WolvixBuild                                #
+#       Author:         Wolven  <http://wolvix.org>                         #
+#       Copyright:      (c) 2008 Wolvix GNU/Linux                           #
+#       License:        http://creativecommons.org/licenses/BSD/            #
+#       Version:        2.0.13                                              #
+#       Updated:        06.04.2010                                          #
+# ------------------------------------------------------------------------- #
+#       Build script template for building Wolvix packages.                 #
+#                                                                           #
+#       This template should be named after the source that's to be         #
+#       compiled, using all lowercase letters. The name should be the       #
+#       same as what's used in the 'PRGNAM' variable found below.           #
+#       Example: 'foobar.WolvixBuild'.                                      #
+#                                                                           #
+#       The build environment needs to be as follows, or the build scrip    #
+#       will fail unless you edit the paths according to your directory     #
+#       structure.                                                          #
+#                                                                           #
+#       ./WolvixBuildSystem                                                 #
+#       +-- include                                                         #
+#       +-- source/<category>/<appname>        <- This file should be here  #
+#       +-- packages/<category>                                             #
+#       +-- tmp                                                             #
+#                                                                           #
+#       Refer to the README.WolvixBuild file for detailed information       #
+#       about the build environment and how to use the build script.        #
+# -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=- #
+
+# Initialize the script by setting the 'CWD' and importing the include file.
+CWD=`pwd`
+INCLUDE_NAME=WolvixBuild.include
+INCLUDE_DIR=$CWD/../../../include
+INCLUDE_LINK=$CWD/$INCLUDE_NAME
+INCLUDE_FILE=$INCLUDE_DIR/$INCLUDE_NAME
+if [ -e "${INCLUDE_FILE}" ]; then
+  . "${INCLUDE_FILE}"
+elif [ ! -e "${INCLUDE_FILE}" ]; then
+  . "${CWD}/${INCLUDE_NAME}"
+else
+  echo 
+  echo "++"
+  echo "|| ERROR:"
+  echo "|| Cannot find '$INCLUDE_NAME'!"
+  echo "||"
+  echo "|| Exiting script now..."
+  echo "++"
+  exit 1
+fi
+
+# === START VARIABLES ======================================================================================================================================= #
+#                _   ,_,   _                                                                                                                                  #
+#               / `'=) (='` \           Holy bloat, Batman! That's a lot of variables...                                                                      #
+#              /.-.-.\ /.-.-.\          - Don't worry Robin, you can leave most of them like they are.                                                        #
+#        jgs   `      "      `                                                                                                                                #
+# =========================================================================================================================================================== #
+
+# ------------------------------------- #
+PRGNAM=appname				# Replace with name of the program. The Slackware package standard is to use lowercase letters.
+VERSION=0.0.0				# Replace with version of the program. No dashes ("-") allowed!
+ARCH=${ARCH:-i486}			# Choose compile architecture. [noarch | i486 | i686 | x86_64 ]
+BUILD=${BUILD:-1}			# Package build number. Bump this number if you're rebuilding the same source version.
+TAG=${TAG:-wlv}				# Replace 'wlv' with your tag. Usually three to four letters.
+CAT=category				# Replace with relevant package category. See README.WolvixBuild for details.
+ARCHIVE_TYPE=tar.bz2			# Define what archive type the source is. [tar.bz2 | tar.gz | tgz | zip]
+# ------------------------------------- #
+
+ARCHIVE_NAME=				# Set this if the SOURCE ARCHIVE name conflicts with the Slackware package standard.
+ARCHIVE_VERSION=${VERSION}		# Set this if the SOURCE ARCHIVE version conflicts with the Slackware package standard.
+ARCHIVE_SEPARATOR="-"			# Separator character between name and version for the SOURCE ARCHIVE. "Standard" should be a dash. ("-")
+
+SRC_DIR_NAME=				# Set this if the SOURCE DIRECTORY name is not the same as the SOURCE ARCHIVE name. *sigh*
+SRC_DIR_VERSION=${VERSION}		# Set this if the SOURCE DIRECTORY version is not the same as the SOURCE ARCHIVE version. *sigh*
+SRC_DIR_SEPARATOR="-"			# Separator character between name and version for the SOURCE DIRECTORY. "Standard" should be a dash. ("-")
+SOURCE_DIRECTORY=			# If the SOURCE DIRECTORY name is not logical at all you can "hard code" the directory name here. *cry*
+
+TMP=$CWD/../../../tmp			# Temp build dir. The "traditional" option is; TMP=${TMP:-/tmp/build}
+PKG=$TMP/package-$PRGNAM		# Source install and package build dir. Leave this like it is.
+OUTPUT=$CWD/../../../packages/$CAT	# Package output dir. The "traditional" option is; OUTPUT=${OUTPUT:-/tmp}
+
+RELEASE_SOURCE=true			# Prepare for release of the source directory? [true | false] true = replace global include link with a local file.
+CONFIRM_LINK=false			# Ask for confirmation before replacing a local include file with a global include link? [true | false]
+CONFIRM_OVERWRITE=false			# Ask for confirmation before replacing an existing package with the same name? [true | false]
+ADD_BUILD_SYSTEM=true			# Add the complete build system, (all files in 'CWD' sans source) to the document direcory? [true | false]
+COPY_DOCS=true                          # Add documents to the package? [true | false]
+CLEAN_TMP=true				# Clean the $TMP directory for old sources if present? [true | false ]
+
+CHECK_SLACK_DESC=true			# Display the slack-desc before building the package to see if it looks OK? [true | false]
+KEEP_LOGS=false				# Keep a copy of the build logs in the 'CWD'? [true | false]
+SHOW_SUMMARY=true			# Display a summary with build information after package has been created? [true | false]
+NEED_ROOT=false				# Enable this if the package needs to be built as root. [true | false]
+
+RESET_PERMISSIONS=true			# Reset the file and dir permissions and ownership in the package. In most cases you want this. [true | false]
+STRIP_BINARIES=true			# Strip the compiled binaries? [true | false] In most cases leave this as true.
+DESCRIPTION_TEXT=true			# Generate a package.txt description file from slack-desc? [true | false]
+PKG_CHECKSUM=none			# Type of checksum to generate for the package. [none | md5sum | sha1sum]
+GCONF_SCHEMAS=false			# Add GConf schemas? Only required by some GNOME applications. [true | false]
+UPDATE_DATABASE=true			# Add code in doinst.sh for updating desktop-database, etc. If a 'desktop entry' file is found? [true | false]
+
+ADD_ICON=false				# Add custom icon to package? (Needs editing in the 'AddIcon' function below.) [true | false]
+FIX_DESKTOP_ENTRY=false			# Tweak existing 'desktop entry' file? (Needs editing in the 'FixDesktopEntry' function below.) [true | false]
+MAKE_DESKTOP_ENTRY=false		# Add a 'desktop entry' file to the package? (Needs editing in the 'MakeDesktopEntry' function below.) [true | false]
+ONLY_SHOW_IN=""				# Add OnlyShowIn to the 'desktop entry'. Semicolon (";") is separator. [ALL | GNOME | KDE | ROX | XFCE]
+NOT_SHOW_IN=""				# Add NotShowIn to the 'desktop entry'. Semicolon (";") is separator. [NONE | GNOME | KDE | ROX | XFCE]
+
+REQUIRED_BUILDER=true			# Use the requiredbuilder to generate slack-required? [true | false]
+REQ_EXCLUDE=""				# Exlude package(s) from slack-required. Comma (",") is separator. (REQ_EXCLUDE="packagename")
+REQ_ADD=""				# Add package(s) to slack-required. Comma (",") is separator. (REQ_ADD="packagename >= version-arch-build")
+
+COMPILE_OPTION=default			# What type of source is it? [default | cmake | perl | python | custom]
+JOBS=-j3				# Set this to match your CPU. [-j2 = single core | -j3 = dual core | -j5 = quad core]
+ 
+# Your might need different or additional configure flags.
+# (This is only used by the 'default' compile option)
+CONFIGURE=" \
+./configure \
+  --prefix=/usr \
+  --libdir=/usr/lib${LIBDIRSUFFIX} \
+  --sysconfdir=/etc \
+  --mandir=/usr/man \
+  --infodir=/usr/info \
+  --docdir=/usr/doc/$PRGNAM-$VERSION \
+  --localstatedir=/var \
+  --enable-shared=yes \
+  --enable-static=no \
+  --build=$ARCH-wolvix-linux
+" # (Don't remove this end quote)
+
+# Edit this according to what docs are in the source tarball.
+DOCS="AUTHORS COPYING ChangeLog INSTALL NEWS README TODO"
+
+# Download URL for the source tarball, no trailing slash. ("/")
+# (Don't include the file name here)
+SOURCE_URL="http://surfnet.dl.sourceforge.net/sourceforge/${PRGNAM}"
+
+# Add your patch(es) here. If you have more than one patch you can add:
+# PATCH_NAME[1], PATCH_GZIPPED[1], PATCH_LEVEL[1], etc.
+PATCH_NAME[0]=					# File name for the patch. (No .gz extention if gzipped.)
+PATCH_GZIPPED[0]=true				# Is the patch gzipped? [true | false]
+PATCH_LEVEL[0]=-p1				# Depends on the patch. [p0 | -p1]
+
+# Additional files in 'CWD' you'd like to add to the build system tarball.
+FILE_LIST="
+
+"
+
+# === END VARIABLES ========================================================================================================================================= #
+
+
+# -------------------------------------------------- Local Functions Start --- #
+
+# Add a custom icon. Edit as appropriate.
+# If using a custom icon in the 'CWD', please use only PNG or SVG format and
+# use the same name as the 'PRGNAM' variable. (<appname>.png / <appname>.svg)
+AddIcon () {
+if [ "$ADD_ICON" = "true" ]; then
+  mkdir -p $PKG/usr/share/pixmaps
+  cp $CWD/$PRGNAM.png $PKG/usr/share/pixmaps
+fi
+}
+
+# Make a 'desktop entry' file. Edit as appropriate after: [Desktop Entry]
+# http://standards.freedesktop.org/desktop-entry-spec/latest/
+MakeDesktopEntry () {
+if [ "$MAKE_DESKTOP_ENTRY" = "true" ]; then
+  mkdir -p $PKG/usr/share/applications
+  cat << EOF > $PKG/usr/share/applications/$PRGNAM.desktop
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=
+GenericName=
+Comment=
+Exec=$PRGNAM
+Icon=/usr/share/pixmaps/$PRGNAM.png
+Categories=Application;
+Terminal=false
+StartupNotify=true
+EOF
+fi
+}
+
+# Fix the 'desktop entry' included in the source archive.
+FixDesktopEntry () {
+if [ "$FIX_DESKTOP_ENTRY" = "true" ]; then
+  sed -i "s|OLD_STRING_GOES_HERE|NEW_STRING_GOES_HERE|g" \
+  $PKG/usr/share/applications/$PRGNAM.desktop
+fi
+}
+
+# Here you can add your own commands if you need to.
+
+# Commands to execute before compiling.
+PreCompileCommands () {
+echo -n # Dummy command, Replace this with your own command(s).
+}
+# Commands to execute after compiling.
+PostCompileCommands () {
+echo -n # Dummy command, Replace this with your own command(s).
+}
+# Commands to execute after install.
+PostInstallCommands () {
+echo -n # Dummy command, Replace this with your own command(s).
+}
+# ---------------------------------------------------- Local Functions End --- #
+
+
+# Execute global functions from the include file.
+# -----------------------------------------------
+RootCheck; IncludeCheck; ErrorCheck;CheckSlackDesc; CustomCheck; SourceCheck
+CreateDirs; CleanTmp; ExtractArchive; SourceDirCheck; ApplyPatch; SetArch
+SetPermissions
+
+# Execute optional local functions.
+# ---------------------------------
+PreCompileCommands
+
+# -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=- #
+#                   Configure and compile the source                        #
+#                   --------------------------------                        #
+# You might need to do some tweaking here, but in most cases you shouldn't  #
+# have to. If you've set the compile option to 'custom' then you'll need to #
+# edit the 'CUSTOM' section at the end here.                                #
+# -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=- #
+
+# --- START ------------------------------------------------------ DEFAULT --- #
+if [ "$COMPILE_OPTION" = "default" ];then
+  CFLAGS="$SLKCFLAGS" \
+  CXXFLAGS="$SLKCFLAGS" \
+  $CONFIGURE			2>&1 | tee $CWD/configure-${PRGNAM}.log
+  make $JOBS			2>&1 | tee $CWD/make-${PRGNAM}.log
+  make install DESTDIR=$PKG	2>&1 | tee $CWD/install-${PRGNAM}.log
+# --- END -------------------------------------------------------- DEFAULT --- #
+
+# --- START -------------------------------------------------------- CMAKE --- #
+elif [ "$COMPILE_OPTION" = "cmake" ];then
+  cmake \
+  -DCMAKE_C_FLAGS="$SLKCFLAGS" \
+  -DCMAKE_CXX_FLAGS="$SLKCFLAGS" \
+  -DCMAKE_INSTALL_PREFIX=/usr \
+  -DLIB_SUFFIX="$LIBDIRSUFFIX" \
+  -DCMAKE_SHARED_LINKER_FLAGS="-lpthread" \
+  .
+
+  make $JOBS			2>&1 | tee $CWD/make-${PRGNAM}.log
+  make install DESTDIR=$PKG	2>&1 | tee $CWD/install-${PRGNAM}.log
+# --- END ---------------------------------------------------------- CMAKE --- #
+
+# --- START --------------------------------------------------------- PERL --- #
+elif [ "$COMPILE_OPTION" = "perl" ];then
+  CFLAGS="$SLKCFLAGS" perl Makefile.PL
+  make				2>&1 | tee $CWD/make-${PRGNAM}.log
+  make test			2>&1 | tee $CWD/test-${PRGNAM}.log
+  make install DESTDIR=$PKG	2>&1 | tee $CWD/install-${PRGNAM}.log
+# Remove perllocal.pod and other special files.
+( cd $PKG
+find . -name perllocal.pod -o -name ".packlist" -o -name "*.bs" | xargs rm -f
+)
+# --- END ----------------------------------------------------------- PERL --- #
+
+# --- START ------------------------------------------------------- PYTHON --- #
+elif [ "$COMPILE_OPTION" = "python" ];then
+  python setup.py build			2>&1 | tee $CWD/build-${PRGNAM}.log
+  python setup.py install --prefix=/usr --root=$PKG	2>&1 | tee $CWD/install-${PRGNAM}.log
+# --- END --------------------------------------------------------- PYTHON --- #
+
+# --- START ------------------------------------------------------- CUSTOM --- #
+elif [ "$COMPILE_OPTION" = "custom" ];then
+# --- Replace the code below this line ---
+  echo 
+  echo "++"
+  echo "|| ERROR:"
+  echo "|| You've selected the 'custom' compile option, but it has not been"
+  echo "|| configured! Change compile option, or edit the CUSTOM section."
+  echo "||"
+  echo "|| Exiting script now..."
+  echo "++"
+  exit 1
+# --- Replace the code above this line ---
+fi
+# --- END --------------------------------------------------------- CUSTOM --- #
+
+
+# Execute optional local functions.
+# ---------------------------------
+AddIcon; MakeDesktopEntry; FixDesktopEntry; PostCompileCommands
+
+# Execute global functions from the include file.
+# -----------------------------------------------
+StripBinaries; CompressFiles; CopyFiles; AddBuildSystem; GConfSchemas
+FixShowIn; DescriptionText; AddRequired; UpdateDatabase; PostInstallCommands
+BuildPackage; GenerateChecksum; ReleaseSource; KeepLogs; ShowSummary; ExitScript
+
+# --- END OF FILE ---

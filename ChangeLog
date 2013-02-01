@@ -1,0 +1,15 @@
+2010-04-06
+----------
+[template.WolvixBuild]
+ * Added support for cmake
+
+2010-03-21
+----------
+[WolvixBuild.include]
+ * Added permission modifier to the docs in CopyFiles ()
+ * Modified SetArch () to use the $ARCH varibles used in Slackware 13.0 
+ * Modified CleanTmp () to check $CLEAN_TMP value
+ 
+[template.WolvixBuild]
+ * Added CLEAN_TMP variable
+ * Added --libdir to the configure flags
